@@ -9,7 +9,7 @@ BSD license, check LICENSE for more information
 #ifndef _PxMATRIX_H
 #define _PxMATRIX_H
 
-// Color depth (defines the number of grayscale levels)
+// Color depth (defines number of grayscale levels)
 // NOTE: the more levels - the slower the update
 #ifndef PxMATRIX_COLOR_DEPTH
 #define PxMATRIX_COLOR_DEPTH 4
@@ -38,19 +38,28 @@ BSD license, check LICENSE for more information
 #define PxMATRIX_SPI_FREQUENCY 20000000L
 #endif
 
-// Inverted Enable signal
+// Invert Output Enable signal
 #ifndef PxMATRIX_OE_INVERT
-#define PxMATRIX_OE_INVERT false
+#define PxMATRIX_OE_INVERT 0
 #endif
 
-// Inverted Latch signal
+// Invert Register Latch signal
 #ifndef PxMATRIX_LATCH_INVERT
-#define PxMATRIX_LATCH_INVERT false
+#define PxMATRIX_LATCH_INVERT 0
 #endif
 
-// Inverted Data bytes
-#ifndef PxMATRIX_DATA_INVERT
-#define PxMATRIX_DATA_INVERT false
+// Invert Register Data bits (for LEDs connected to power instead ground)
+#ifdef PxMATRIX_DATA_INVERT
+#if PxMATRIX_DATA_INVERT == 0
+#undef PxMATRIX_DATA_INVERT
+#endif
+#endif
+
+// Double buffer to avoid pixels flickering when clearing and drawing pixels
+#ifdef PxMATRIX_DOUBLE_BUFFER
+#if PxMATRIX_DOUBLE_BUFFER == 0
+#undef PxMATRIX_DOUBLE_BUFFER
+#endif
 #endif
 
 #ifndef _BV
@@ -83,12 +92,6 @@ BSD license, check LICENSE for more information
 
 #include <stdlib.h>
 
-// Sometimes some extra width needs to be passed to Adafruit GFX constructor
-// to render text close to the end of the display correctly
-#ifndef ADAFRUIT_GFX_EXTRA
-#define ADAFRUIT_GFX_EXTRA 0
-#endif
-
 #ifdef ESP8266
 #define GPIO_REG_SET(val)   GPIO_REG_WRITE(GPIO_OUT_W1TS_ADDRESS, val)
 #define GPIO_REG_CLEAR(val) GPIO_REG_WRITE(GPIO_OUT_W1TC_ADDRESS, val)
@@ -105,32 +108,41 @@ BSD license, check LICENSE for more information
 #ifdef ESP32
 #include "esp32-hal-gpio.h"
 #include "soc/spi_struct.h"
+#endif
 
 #ifdef PxMATRIX_GAMMA_PRESET
 #include "PxMatrix_gamma.h"
 #endif
 
-struct spi_struct_t
-{
-    spi_dev_t* dev;
-#if !CONFIG_DISABLE_HAL_LOCKS
-    xSemaphoreHandle lock;
+#ifndef PxMATRIX_DATA_INVERT
+#define PxMATRIX_DATA_CLEAR 0x00
+#else
+#define PxMATRIX_DATA_CLEAR 0xFF
 #endif
-    uint8_t num;
-};
-#endif /* ESP32 */
 
 class PxMATRIX : public Adafruit_GFX
 {
 public:
+    // Create output display for LED matrix
+    // Size of width and height = total number of LEDs in width and height for the whole matrix.
+    //   Number of matrix pannels should be set with "setPanelsWidth" method.
+    // LATCH = output pin for Register Latch signal (can be named as L, LAT, STB or SCLK)
+    // OE = output pin for Output Enable (to light pixels of the current selected scanline)
+    // A,B,C,D,E = ouput pins for scan pattern demultiplexing (to select current scanline)
+    //   Scanline pattern (number of scans) should be passed as "begin" method argument.
+    // NOTE: SPI pins MOSI and CLK are used to send data to shift registers (see board pinouts).
     inline PxMATRIX(uint16_t width, uint16_t height, uint8_t LATCH, uint8_t OE, uint8_t A, uint8_t B, uint8_t C = 0, uint8_t D = 0, uint8_t E = 0);
 
+    // Prepare to render display
+    // row_pattern = number of scan lines to display whole image (defined by hardware)
+    //   Typical display scan rates: 1/4, 1/8, 1/16, 1/32, 1/64
     inline void begin(uint8_t row_pattern = 8);
 
+    // Clear display buffer
     inline void clearDisplay(void);
     inline void clearDisplay(bool selected_buffer);
 
-    // Updates the display
+    // Render buffer at display
     inline void display(uint16_t show_time = PxMATRIX_DEFAULT_SHOWTIME);
 
     // Draw pixel
@@ -140,7 +152,8 @@ public:
     uint8_t getPixel(int8_t x, int8_t y);
     uint8_t getPixel(int8_t x, int8_t y, bool selected_buffer);
 
-    // Flush the hardware display at startup (doesn't clear the buffer, use clearDisplay instead)
+    // Flush the display registers (example at startup to purge previous data)
+    // NOTE: It doesn't clear the buffer (use clearDisplay instead)
     inline void flushDisplay();
 
     // Rotate display
@@ -152,11 +165,11 @@ public:
     // Helps to reduce display update latency on larger displays
     inline void setFastUpdate(bool fast_update);
 
-    // When using double buffering, this displays the draw buffer
+    // When using double buffering, this swaps buffers makes new frame is ready to render
     inline void showBuffer();
 
 #ifdef PxMATRIX_DOUBLE_BUFFER
-    // This copies the display buffer to the drawing buffer (or reverse)
+    // Copy the display buffer to the drawing buffer (or reverse)
     inline void copyBuffer(bool reverse = false);
 #endif
 
@@ -171,49 +184,61 @@ public:
     inline void setBrightness(uint8_t brightness);
 
 private:
-    // the display buffer for the LED matrix
-    uint8_t* PxMATRIX_buffer;
+    // Display buffer for the LED matrix
+    // Array structure:
+    // Whole buffer is splited into bit planes (color depth is used to display grayscale levels).
+    // Each bit plane contain separate scan lines (by scan line pattern) so it can be send to display as continuous byte stream by SPI.
+    // Each scanline buffer is splitted by number of color components (only 1 component is used for now).
+    // Scanline buffer (for each color component) contains data for all matrix panels are sequenced in a chain.
+    // Each panel data are mapped to its registers location at the panel (commonly it's a zigzag-chaining pattern).
+    // Each register controls set of pixels (usally a byte in series, each bit for one LED per scan pattern).
+    // For detais see comments in method mapBufferIndex for mapping of pixel location onto matrix data byte and bit.
+    const uint8_t* PxMATRIX_buffer;
 #ifdef PxMATRIX_DOUBLE_BUFFER
-    uint8_t* PxMATRIX_buffer2;
+    // Second display buffer (_active_buffer flag controls what buffer is active rendering)
+    const uint8_t* PxMATRIX_buffer2;
 #endif
 
     // GPIO pins
-    uint8_t _LATCH_PIN;
-    uint8_t _OE_PIN;
-    uint8_t _A_PIN;
-    uint8_t _B_PIN;
-    uint8_t _C_PIN;
-    uint8_t _D_PIN;
-    uint8_t _E_PIN;
+    const uint8_t _LATCH_PIN;
+    const uint8_t _OE_PIN;
+    const uint8_t _A_PIN;
+    const uint8_t _B_PIN;
+    const uint8_t _C_PIN;
+    const uint8_t _D_PIN;
+    const uint8_t _E_PIN;
 
-    uint16_t _width;
-    uint16_t _height;
-    uint8_t  _panels_width;
-    
-    uint8_t  _rows_per_pattern;
-    uint8_t  _panel_width_bytes;
+    // Full size of display and number of panels in chain
+    const uint16_t _width;
+    const uint16_t _height;
+    uint8_t        _panels_width;
+
+    // Number of scan lines
+    uint8_t _row_pattern;
+
+    // Number of lines per a scan (number of shift registers by height at a single matrix)
+    uint8_t _rows_per_pattern;
+    // Number of panel bytes in width (number of shift registers by width at a single matrix)
+    uint8_t _panel_width_bytes;
 
     // Panel Brightness
     uint8_t _brightness;
 
-    // Color pattern that is pushed to the display
+    // Counter for the current color bit plane to be render
+    // Counts to PxMATRIX_COLOR_DEPTH (number of bits for color depth)
     uint8_t _display_color;
 
     // Holds some pre-computed values for faster pixel drawing
     uint32_t* _row_offset;
 
-    // Holds the display row pattern type
-    uint8_t _row_pattern;
-
-    // Number of bytes in one color
-    uint8_t _pattern_color_bytes;
-
-    // Total number of bytes that is pushed to the display at a time
-    // PxMATRIX_COLOR_COMP * _pattern_color_bytes
-    uint16_t _buffer_size;
+    // Total number of bytes that is pushed to the display at a time (single scan line)
+    // = (_height / _row_pattern) * (_width / 8) * PxMATRIX_COLOR_COMP
     uint16_t _send_buffer_size;
+    // Total number of bytes for display to refresh (all scan lines)
+    const uint16_t _buffer_size;
 
     // This is for double buffering
+    // Initially _active_buffer = false means that PxMATRIX_buffer is displayed and pixels are drawing into PxMATRIX_buffer2
     bool _active_buffer;
 
     // Display and color engine
@@ -221,6 +246,7 @@ private:
     bool _flip;
     bool _fast_update;
 
+    // Delays for muxer channels
     uint8_t _mux_delay_A;
     uint8_t _mux_delay_B;
     uint8_t _mux_delay_C;
@@ -230,15 +256,20 @@ private:
     static const uint32_t BUFFER_OUT_OF_BOUNDS = UINT32_MAX;
 
 private:
-    // Generic function that draw one pixel
-    inline void fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, bool selected_buffer);
+    inline uint8_t* getBuffer(bool selected_buffer);
 
     inline uint32_t mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit);
+
+    inline uint8_t mapColorLevel(uint8_t r);
+
+    inline uint8_t unmapColorLevel(uint8_t level);
+
+    inline void fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, bool selected_buffer);
 
     // Light up LEDs and hold for show_time microseconds
     inline void latch(uint16_t show_time);
 
-    // Set row multiplexer
+    // Set multiplexer scan line
     inline void set_mux(uint8_t value);
 
     inline void spi_init();
@@ -254,7 +285,7 @@ inline void PxMATRIX::setMuxDelay(uint8_t mux_delay_A, uint8_t mux_delay_B, uint
 
 inline void PxMATRIX::setPanelsWidth(uint8_t panels) {
     _panels_width = panels;
-    _panel_width_bytes = (_width / _panels_width) / 8;
+    _panel_width_bytes = (_width / panels) / 8;
 }
 
 inline void PxMATRIX::setRotate(bool rotate) {
@@ -273,8 +304,8 @@ inline void PxMATRIX::setBrightness(uint8_t brightness) {
     _brightness = brightness;
 }
 
-inline PxMATRIX::PxMATRIX(uint16_t width, uint16_t height, uint8_t LATCH, uint8_t OE,
-        uint8_t A, uint8_t B, uint8_t C, uint8_t D, uint8_t E) : Adafruit_GFX(width + ADAFRUIT_GFX_EXTRA, height) {
+inline PxMATRIX::PxMATRIX(uint16_t width, uint16_t height, uint8_t LATCH, uint8_t OE, uint8_t A, uint8_t B, uint8_t C, uint8_t D, uint8_t E)
+  : Adafruit_GFX(width + ADAFRUIT_GFX_EXTRA, height) {
     _LATCH_PIN = LATCH;
     _OE_PIN = OE;
     _A_PIN = A;
@@ -324,16 +355,22 @@ inline void PxMATRIX::showBuffer() {
     _active_buffer = !_active_buffer;
 }
 
+inline uint8_t* PxMATRIX::getBuffer(bool selected_buffer) {
+#ifndef PxMATRIX_DOUBLE_BUFFER
+    return PxMATRIX_buffer;
+#else
+    return selected_buffer ? PxMATRIX_buffer2 : PxMATRIX_buffer;
+#endif
+}
+
 #ifdef PxMATRIX_DOUBLE_BUFFER
 inline void PxMATRIX::copyBuffer(bool reverse) {
     // This copies the display buffer to the drawing buffer (or reverse)
     // You may need this in case you rely on the framebuffer to always contain the last frame
     // _active_buffer = true means that PxMATRIX_buffer2 is displayed
-    if(_active_buffer ^ reverse) {
-        memcpy(PxMATRIX_buffer, PxMATRIX_buffer2, PxMATRIX_COLOR_DEPTH * _buffer_size);
-    } else {
-        memcpy(PxMATRIX_buffer2, PxMATRIX_buffer, PxMATRIX_COLOR_DEPTH * _buffer_size);
-    }
+    uint8_t* src = getBuffer(_active_buffer ^ reverse);
+    uint8_t* dst = getBuffer(_active_buffer);
+    memcpy(dst, src, PxMATRIX_COLOR_DEPTH * _buffer_size);
 }
 #endif /* PxMATRIX_DOUBLE_BUFFER */
 
@@ -352,10 +389,10 @@ inline uint32_t PxMATRIX::mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit) {
 
     // HUB12 (32x16) register chain (https://forum.arduino.cc/t/p10-led-matrix-panels-16x32/251251/13)
     // Data bytes order:
-    //                3  7 11 15 <= data-in
-    //                2  6 10 14
-    //                1  5  9 13
-    // next pannel <= 0  4  8 12
+    //               3  7 11 15 <= data-in
+    //               2  6 10 14
+    //               1  5  9 13
+    // next panel <= 0  4  8 12
     // Each register has bits in reverse order:
     //             7 6 5 4 3 2 1 0
     *pBit = x % 8;
@@ -369,44 +406,54 @@ inline uint32_t PxMATRIX::mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit) {
     return _row_offset[row_index] - offset;
 }
 
+inline uint8_t PxMATRIX::mapColorLevel(uint8_t r) {
+#ifdef PxMATRIX_GAMMA_TABLE
+    // Gamma-correction via lookup table
+    r = PxMATRIX_GAMMA_TABLE[r];
+#endif
+#ifdef PxMATRIX_DATA_INVERT
+    r = 255 - r;
+#endif
+    uint8_t level = r >> (8 - PxMATRIX_COLOR_DEPTH);
+    return level;
+}
+
+inline uint8_t PxMATRIX::unmapColorLevel(uint8_t level) {
+    uint8_t r = level << (8 - PxMATRIX_COLOR_DEPTH);
+#ifdef PxMATRIX_DATA_INVERT
+    r = 255 - r;
+#endif
+    // Unmap gamma-corrected value
+#ifdef PxMATRIX_GAMMA_TABLE
+    for(int i = 0; i < 256; ++i)
+        if(r == PxMATRIX_GAMMA_TABLE[i])
+            return i;
+#endif
+    return r;
+}
+
 inline void PxMATRIX::fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, bool selected_buffer) {
     uint8_t  nbit;
     uint32_t nbyte = mapBufferIndex(x, y, &nbit);
     if(nbyte == BUFFER_OUT_OF_BOUNDS)
         return;
 
-#ifdef PxMATRIX_DATA_INVERT
-    r = 255 - r;
-#endif
-#ifdef PxMATRIX_GAMMA_TABLE
-    // Gamma-correction via lookup table
-    r = PxMATRIX_GAMMA_TABLE[r];
-#endif
-#if PxMATRIX_COLOR_DEPTH != 8
-    r = r >> (8 - PxMATRIX_COLOR_DEPTH);
-#endif
+    uint8_t level = mapColorLevel(r);
 
-    // Store pixel color value into bit planes
-#ifndef PxMATRIX_DOUBLE_BUFFER
-    uint8_t* pBuffer = PxMATRIX_buffer;
-#else
-    uint8_t* pBuffer = selected_buffer ? PxMATRIX_buffer2 : PxMATRIX_buffer;
-#endif
-    for(int i = 0; i < PxMATRIX_COLOR_DEPTH; i++) {
-        if((r >> i) & 0x01)
+    // Store pixel level bits separatelly into bit planes
+    uint8_t* pBuffer = getBuffer(selected_buffer);
+    for(uint8_t i = 0; i < PxMATRIX_COLOR_DEPTH; i++) {
+        if(level & _BV(i)) {
             pBuffer[i * _buffer_size + nbyte] |= _BV(nbit);
-        else
+        } else {
             pBuffer[i * _buffer_size + nbyte] &= ~_BV(nbit);
+        }
     }
 }
 
 inline uint8_t PxMATRIX::getPixel(int8_t x, int8_t y) {
-#ifdef PxMATRIX_DOUBLE_BUFFER
     // Read from active buffer
     return getPixel(x, y, _active_buffer);
-#else
-    return getPixel(x, y, false);
-#endif
 }
 
 inline uint8_t PxMATRIX::getPixel(int8_t x, int8_t y, bool selected_buffer) {
@@ -414,21 +461,16 @@ inline uint8_t PxMATRIX::getPixel(int8_t x, int8_t y, bool selected_buffer) {
     uint32_t nbyte = mapBufferIndex(x, y, &nbit);
     if(nbyte == BUFFER_OUT_OF_BOUNDS)
         return 0;
-    
-    // Restore color value from bit planes
-#ifndef PxMATRIX_DOUBLE_BUFFER
-    uint8_t* pBuffer = PxMATRIX_buffer;
-#else
-    uint8_t* pBuffer = selected_buffer ? PxMATRIX_buffer2 : PxMATRIX_buffer;
-#endif
-    uint8_t r = 0;
-    for(int i = 0; i < PxMATRIX_COLOR_DEPTH; i++) {
+
+    // Restore pixel level from bit planes
+    uint8_t* pBuffer = getBuffer(selected_buffer);
+    uint8_t  level = 0;
+    for(uint8_t i = 0; i < PxMATRIX_COLOR_DEPTH; i++) {
         if(pBuffer[i * _buffer_size + nbyte] & _BV(nbit))
-            r |= _BV(i);
+            level |= _BV(i);
     }
 
-    r = (r << (8 - PxMATRIX_COLOR_DEPTH));
-
+    uint8_t r = unmapColorLevel(level);
     return r;
 }
 
@@ -446,7 +488,7 @@ void PxMATRIX::spi_init() {
 void PxMATRIX::begin(uint8_t row_pattern) {
     _row_pattern = row_pattern;
     _rows_per_pattern = _height / _row_pattern;
-    _pattern_color_bytes = _rows_per_pattern * _width / 8;
+    uint8_t _pattern_color_bytes = _rows_per_pattern * _width / 8;
     _send_buffer_size = _pattern_color_bytes * PxMATRIX_COLOR_COMP;
 
     spi_init();
@@ -513,24 +555,24 @@ void PxMATRIX::latch(uint16_t show_time) {
 }
 
 void PxMATRIX::display(uint16_t show_time) {
-    if(show_time == 0) show_time = 1;
-#if PxMATRIX_COLOR_DEPTH != 1
+    if(show_time == 0)
+        show_time = 1;
+
     // How long do we keep the pixels on
+#if PxMATRIX_COLOR_DEPTH != 1
+    // Display bit planes in Bit Angle Modulation
+    // Thus show_time is a total time to show all bit planes
     uint16_t latch_time = ((show_time * (1 << _display_color) * _brightness) / 255 / 2);
 #else
     uint16_t latch_time = (show_time * _brightness) / 255;
 #endif
 
-    unsigned long start_time = 0;
 #ifdef ESP8266
     ESP.wdtFeed();
 #endif
 
-    uint8_t* PxMATRIX_bufferp = PxMATRIX_buffer;
-#ifdef PxMATRIX_DOUBLE_BUFFER
-    PxMATRIX_bufferp = _active_buffer ? PxMATRIX_buffer2 : PxMATRIX_buffer;
-#endif
-
+    unsigned long start_time = 0;
+    uint8_t* pBuffer = getBuffer(_active_buffer);
     for(uint8_t i = 0; i < _row_pattern; i++) {
         if(_fast_update && _brightness == 255) {
             // This will clock data into the display while the outputs are still
@@ -547,10 +589,10 @@ void PxMATRIX::display(uint16_t show_time) {
             delayMicroseconds(1);
             if(i < _row_pattern - 1) {
                 // This pre-buffers the data for the next row pattern of this _display_color
-                SPI_BUFFER(&PxMATRIX_bufferp[_display_color * _buffer_size + (i + 1) * _send_buffer_size], _send_buffer_size);
+                SPI_BUFFER(&pBuffer[_display_color * _buffer_size + (i + 1) * _send_buffer_size], _send_buffer_size);
             } else {
                 // This pre-buffers the data for the first row pattern of the next _display_color
-                SPI_BUFFER(&PxMATRIX_bufferp[((_display_color + 1) % PxMATRIX_COLOR_DEPTH) * _buffer_size], _send_buffer_size);
+                SPI_BUFFER(&pBuffer[((_display_color + 1) % PxMATRIX_COLOR_DEPTH) * _buffer_size], _send_buffer_size);
             }
 
             while((micros() - start_time) < latch_time)
@@ -562,51 +604,34 @@ void PxMATRIX::display(uint16_t show_time) {
 #ifdef __AVR__
             uint8_t this_byte;
             for(uint32_t byte_cnt = 0; byte_cnt < _send_buffer_size; byte_cnt++) {
-                this_byte = PxMATRIX_bufferp[_display_color * _buffer_size + i * _send_buffer_size + byte_cnt];
+                this_byte = pBuffer[_display_color * _buffer_size + i * _send_buffer_size + byte_cnt];
                 SPI_BYTE(this_byte);
             }
 #else
-            SPI_BUFFER(&PxMATRIX_bufferp[_display_color * _buffer_size + i * _send_buffer_size], _send_buffer_size);
+            SPI_BUFFER(&pBuffer[_display_color * _buffer_size + i * _send_buffer_size], _send_buffer_size);
 #endif
             latch(latch_time);
         }
     }
     ++_display_color;
-    if(_display_color >= PxMATRIX_COLOR_DEPTH) _display_color = 0;
+    if(_display_color >= PxMATRIX_COLOR_DEPTH)
+        _display_color = 0;
 }
 
 void PxMATRIX::flushDisplay(void) {
-#ifndef PxMATRIX_DATA_INVERT
-    uint8_t b = 0x00;
-#else
-    uint8_t b = 0xFF;
-#endif
     for(int i = 0; i < _send_buffer_size; ++i)
-        SPI_BYTE(b);
+        SPI_BYTE(PxMATRIX_DATA_CLEAR);
+    latch(0);
 }
 
 void PxMATRIX::clearDisplay(void) {
-#ifdef PxMATRIX_DOUBLE_BUFFER
+    // Update inactive buffer
     clearDisplay(!_active_buffer);
-#else
-    clearDisplay(false);
-#endif
 }
 
 void PxMATRIX::clearDisplay(bool selected_buffer) {
-#ifndef PxMATRIX_DATA_INVERT
-    uint8_t val = 0x00;
-#else
-    uint8_t val = 0xFF;
-#endif
-#ifdef PxMATRIX_DOUBLE_BUFFER
-    if(selected_buffer)
-        memset(PxMATRIX_buffer2, val, PxMATRIX_COLOR_DEPTH * _buffer_size);
-    else
-        memset(PxMATRIX_buffer, val, PxMATRIX_COLOR_DEPTH * _buffer_size);
-#else
-    memset(PxMATRIX_buffer, val, PxMATRIX_COLOR_DEPTH * _buffer_size);
-#endif
+    uint8_t* pBuffer = getBuffer(selected_buffer);
+    memset(pBuffer, PxMATRIX_DATA_CLEAR, PxMATRIX_COLOR_DEPTH * _buffer_size);
 }
 
 #endif /* _PxMATRIX_H */
