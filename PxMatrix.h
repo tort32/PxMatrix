@@ -193,10 +193,10 @@ private:
     // Each panel data are mapped to its registers location at the panel (commonly it's a zigzag-chaining pattern).
     // Each register controls set of pixels (usally a byte in series, each bit for one LED per scan pattern).
     // For detais see comments in method mapBufferIndex for mapping of pixel location onto matrix data byte and bit.
-    const uint8_t* PxMATRIX_buffer;
+    uint8_t* PxMATRIX_buffer;
 #ifdef PxMATRIX_DOUBLE_BUFFER
     // Second display buffer (_active_buffer flag controls what buffer is active rendering)
-    const uint8_t* PxMATRIX_buffer2;
+    uint8_t* PxMATRIX_buffer2;
 #endif
 
     // GPIO pins
@@ -208,9 +208,7 @@ private:
     const uint8_t _D_PIN;
     const uint8_t _E_PIN;
 
-    // Full size of display and number of panels in chain
-    const uint16_t _width;
-    const uint16_t _height;
+    // Number of chained panels
     uint8_t        _panels_width;
 
     // Number of scan lines
@@ -232,7 +230,7 @@ private:
     uint32_t* _row_offset;
 
     // Total number of bytes that is pushed to the display at a time (single scan line)
-    // = (_height / _row_pattern) * (_width / 8) * PxMATRIX_COLOR_COMP
+    // = (HEIGHT / _row_pattern) * (WIDTH / 8) * PxMATRIX_COLOR_COMP
     uint16_t _send_buffer_size;
     // Total number of bytes for display to refresh (all scan lines)
     const uint16_t _buffer_size;
@@ -285,7 +283,7 @@ inline void PxMATRIX::setMuxDelay(uint8_t mux_delay_A, uint8_t mux_delay_B, uint
 
 inline void PxMATRIX::setPanelsWidth(uint8_t panels) {
     _panels_width = panels;
-    _panel_width_bytes = (_width / panels) / 8;
+    _panel_width_bytes = (WIDTH / panels) / 8;
 }
 
 inline void PxMATRIX::setRotate(bool rotate) {
@@ -305,19 +303,19 @@ inline void PxMATRIX::setBrightness(uint8_t brightness) {
 }
 
 inline PxMATRIX::PxMATRIX(uint16_t width, uint16_t height, uint8_t LATCH, uint8_t OE, uint8_t A, uint8_t B, uint8_t C, uint8_t D, uint8_t E)
-  : Adafruit_GFX(width + ADAFRUIT_GFX_EXTRA, height) {
-    _LATCH_PIN = LATCH;
-    _OE_PIN = OE;
-    _A_PIN = A;
-    _B_PIN = B;
-    _C_PIN = C;
-    _D_PIN = D;
-    _E_PIN = E;
+  : Adafruit_GFX(width, height)
+  , _LATCH_PIN(LATCH)
+  , _OE_PIN(OE)
+  , _A_PIN(A)
+  , _B_PIN(B)
+  , _C_PIN(C)
+  , _D_PIN(D)
+  , _E_PIN(E)
+  , _buffer_size(WIDTH * HEIGHT * PxMATRIX_COLOR_COMP / 8) {
 
-    _width = width;
-    _height = height;
-    _panels_width = 1;
     _row_pattern = 0;
+    _panels_width = 1;
+    _panel_width_bytes = WIDTH / 8;
 
     _active_buffer = false;
     _display_color = 0;
@@ -325,15 +323,7 @@ inline PxMATRIX::PxMATRIX(uint16_t width, uint16_t height, uint8_t LATCH, uint8_
     _rotate = 0;
     _flip = 0;
     _fast_update = 0;
-
-    _buffer_size = (_width * _height * PxMATRIX_COLOR_COMP / 8);
-    _panel_width_bytes = (_width / _panels_width) / 8;
-
-    _mux_delay_A = 0;
-    _mux_delay_B = 0;
-    _mux_delay_C = 0;
-    _mux_delay_D = 0;
-    _mux_delay_E = 0;
+    _mux_delay_A = _mux_delay_B = _mux_delay_C = _mux_delay_D = _mux_delay_E = 0;
 
     PxMATRIX_buffer = new uint8_t[PxMATRIX_COLOR_DEPTH * _buffer_size];
 #ifdef PxMATRIX_DOUBLE_BUFFER
@@ -359,7 +349,7 @@ inline uint8_t* PxMATRIX::getBuffer(bool selected_buffer) {
 #ifndef PxMATRIX_DOUBLE_BUFFER
     return PxMATRIX_buffer;
 #else
-    return selected_buffer ? PxMATRIX_buffer2 : PxMATRIX_buffer;
+    return (selected_buffer ? PxMATRIX_buffer2 : PxMATRIX_buffer);
 #endif
 }
 
@@ -378,13 +368,13 @@ inline uint32_t PxMATRIX::mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit) {
     if(_rotate) {
         uint16_t temp_x = x;
         x = y;
-        y = (_height - 1) - temp_x;
+        y = (HEIGHT - 1) - temp_x;
     }
     // Panels are naturally flipped
     if(!_flip) {
-        x = (_width - 1) - x;
+        x = (WIDTH - 1) - x;
     }
-    if(x < 0 || x >= _width || y < 0 || y >= _height)
+    if(x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT)
         return BUFFER_OUT_OF_BOUNDS;
 
     // HUB12 (32x16) register chain (https://forum.arduino.cc/t/p10-led-matrix-panels-16x32/251251/13)
@@ -487,8 +477,8 @@ void PxMATRIX::spi_init() {
 
 void PxMATRIX::begin(uint8_t row_pattern) {
     _row_pattern = row_pattern;
-    _rows_per_pattern = _height / _row_pattern;
-    uint8_t _pattern_color_bytes = _rows_per_pattern * _width / 8;
+    _rows_per_pattern = HEIGHT / _row_pattern;
+    uint8_t _pattern_color_bytes = _rows_per_pattern * WIDTH / 8;
     _send_buffer_size = _pattern_color_bytes * PxMATRIX_COLOR_COMP;
 
     spi_init();
