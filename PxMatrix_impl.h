@@ -370,7 +370,7 @@ void PxMATRIX::display(uint16_t show_time) {
 
     unsigned long start_time = 0;
     uint8_t* pBuffer = getBuffer(_active_buffer);
-    for(uint8_t row = 0; i < _row_pattern; ++row) {
+    for(uint8_t row = 0; row < _row_pattern; ++row) {
         if(_fast_update && _brightness == 255) {
             // This will clock data into the display while the outputs are still
             // latched (LEDs on). We therefore utilize SPI transfer latency as LED
@@ -384,7 +384,7 @@ void PxMATRIX::display(uint16_t show_time) {
             digitalWrite(_OE_PIN, LOW ^ PxMATRIX_OE_INVERT);
             start_time = micros();
             delayMicroseconds(1);
-            if(i < _row_pattern - 1) {
+            if(row < _row_pattern - 1) {
                 // This pre-buffers the data for the next row pattern of this _display_color
                 SPI_BUFFER(&pBuffer[_display_color * _buffer_size + (row + 1) * _send_buffer_size], _send_buffer_size);
             } else {
