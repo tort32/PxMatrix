@@ -68,6 +68,8 @@ BSD license, check LICENSE for more information
 #include "PxMatrix_gamma.h"
 #endif
 
+enum PxMATRIX_Buffer_Type {ACTIVE, INACTIVE, FIRST, SECOND};
+
 class PxMATRIX : public Adafruit_GFX
 {
 public:
@@ -87,8 +89,7 @@ public:
     inline void begin(uint8_t row_pattern = 8);
 
     // Clear display buffer
-    inline void clearDisplay(void);
-    inline void clearDisplay(bool selected_buffer);
+    inline void clearDisplay(PxMATRIX_Buffer_Type selected_buffer = PxMATRIX_Buffer_Type::INACTIVE);
 
     // Render buffer at display
     inline void display(uint16_t show_time = PxMATRIX_DEFAULT_SHOWTIME);
@@ -97,8 +98,7 @@ public:
     inline void drawPixel(int16_t x, int16_t y, uint16_t color = 0xFF) override;
 
     // Read pixel
-    uint8_t getPixel(int8_t x, int8_t y);
-    uint8_t getPixel(int8_t x, int8_t y, bool selected_buffer);
+    uint8_t getPixel(int8_t x, int8_t y, PxMATRIX_Buffer_Type selected_buffer = PxMATRIX_Buffer_Type::ACTIVE);
 
     // Flush the display registers (example at startup to purge previous data)
     // NOTE: It doesn't clear the buffer (use clearDisplay instead)
@@ -116,10 +116,8 @@ public:
     // When using double buffering, this swaps buffers makes new frame is ready to render
     inline void showBuffer();
 
-#ifdef PxMATRIX_DOUBLE_BUFFER
-    // Copy the display buffer to the drawing buffer (or reverse)
+    // When using double buffering, copy the display buffer to the drawing buffer (or reverse)
     inline void copyBuffer(bool reverse = false);
-#endif
 
     // Set the time in microseconds that we pause after selecting each mux channel
     // (May help if some rows are missing / the mux chip is too slow)
@@ -202,7 +200,7 @@ private:
     static const uint32_t BUFFER_OUT_OF_BOUNDS = UINT32_MAX;
 
 private:
-    inline uint8_t* getBuffer(bool selected_buffer);
+    inline uint8_t* getBuffer(PxMATRIX_Buffer_Type selected_buffer);
 
     inline uint32_t mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit);
 
@@ -210,7 +208,7 @@ private:
 
     inline uint8_t unmapColorLevel(uint8_t level);
 
-    inline void fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, bool selected_buffer);
+    inline void fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, PxMATRIX_Buffer_Type selected_buffer);
 
     inline uint16_t getLatchTime(uint16_t show_time);
 

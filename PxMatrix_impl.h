@@ -122,44 +122,48 @@ inline PxMATRIX::PxMATRIX(uint16_t width, uint16_t height, uint8_t LATCH, uint8_
 
 inline void PxMATRIX::drawPixel(int16_t x, int16_t y, uint16_t color) {
     uint8_t r = color & 0xFF;
-#ifdef PxMATRIX_DOUBLE_BUFFER
-    // Draw into inactive buffer
-    fillMatrixBuffer(x, y, r, !_active_buffer);
-#else
-    fillMatrixBuffer(x, y, r, false);
-#endif
+    fillMatrixBuffer(x, y, r, PxMATRIX_Buffer_Type::INACTIVE);
 }
 
 inline void PxMATRIX::showBuffer() {
     _active_buffer = !_active_buffer;
 }
 
-inline uint8_t* PxMATRIX::getBuffer(bool selected_buffer) {
-#ifndef PxMATRIX_DOUBLE_BUFFER
-    return PxMATRIX_buffer;
-#else
-    return (selected_buffer ? PxMATRIX_buffer2 : PxMATRIX_buffer);
+inline uint8_t* PxMATRIX::getBuffer(PxMATRIX_Buffer_Type selected_buffer) {
+#ifdef PxMATRIX_DOUBLE_BUFFER
+    switch(selected_buffer) {
+    case ACTIVE:
+        // _active_buffer = true means that PxMATRIX_buffer2 is displayed
+        return _active_buffer ?  PxMATRIX_buffer2 : PxMATRIX_buffer;
+    case INACTIVE:
+        return _active_buffer ?  PxMATRIX_buffer : PxMATRIX_buffer2;
+    case FIRST:
+        return PxMATRIX_buffer;
+    case SECOND:
+        return PxMATRIX_buffer2;
+    }
 #endif
+    return PxMATRIX_buffer;
 }
 
-#ifdef PxMATRIX_DOUBLE_BUFFER
 inline void PxMATRIX::copyBuffer(bool reverse) {
-    // This copies the display buffer to the drawing buffer (or reverse)
+#ifdef PxMATRIX_DOUBLE_BUFFER
+    // This copies the display buffer (active) to the drawing buffer (or reverse)
     // You may need this in case you rely on the framebuffer to always contain the last frame
-    // _active_buffer = true means that PxMATRIX_buffer2 is displayed
-    uint8_t* src = getBuffer(_active_buffer ^ reverse);
-    uint8_t* dst = getBuffer(_active_buffer);
+    uint8_t* src = getBuffer(reverse ? PxMATRIX_Buffer_Type::INACTIVE : PxMATRIX_Buffer_Type::ACTIVE);
+    uint8_t* dst = getBuffer(reverse ? PxMATRIX_Buffer_Type::ACTIVE : PxMATRIX_Buffer_Type::INACTIVE);
     memcpy(dst, src, PxMATRIX_COLOR_DEPTH * _buffer_size);
-}
 #endif /* PxMATRIX_DOUBLE_BUFFER */
+}
+
 
 inline uint32_t PxMATRIX::mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit) {
     if(_rotate) {
-        uint16_t temp_x = x;
+        int16_t temp_x = x;
         x = y;
         y = (HEIGHT - 1) - temp_x;
     }
-    // Panels are naturally flipped
+    // Panels are naturally flipped horizontally
     if(!_flip) {
         x = (WIDTH - 1) - x;
     }
@@ -202,8 +206,9 @@ inline uint8_t PxMATRIX::unmapColorLevel(uint8_t level) {
 #ifdef PxMATRIX_DATA_INVERT
     r = 255 - r;
 #endif
-    // Unmap gamma-corrected value
 #ifdef PxMATRIX_GAMMA_TABLE
+    // Unmap gamma-corrected value
+    // TODO Fix gamma unmap for precision loss due to color depth truncation
     for(int i = 0; i < 256; ++i)
         if(r == PxMATRIX_GAMMA_TABLE[i])
             return i;
@@ -211,7 +216,7 @@ inline uint8_t PxMATRIX::unmapColorLevel(uint8_t level) {
     return r;
 }
 
-inline void PxMATRIX::fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, bool selected_buffer) {
+inline void PxMATRIX::fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, PxMATRIX_Buffer_Type selected_buffer) {
     uint8_t  nbit;
     uint32_t nbyte = mapBufferIndex(x, y, &nbit);
     if(nbyte == BUFFER_OUT_OF_BOUNDS)
@@ -230,12 +235,7 @@ inline void PxMATRIX::fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, bool sel
     }
 }
 
-inline uint8_t PxMATRIX::getPixel(int8_t x, int8_t y) {
-    // Read from active buffer
-    return getPixel(x, y, _active_buffer);
-}
-
-inline uint8_t PxMATRIX::getPixel(int8_t x, int8_t y, bool selected_buffer) {
+inline uint8_t PxMATRIX::getPixel(int8_t x, int8_t y, PxMATRIX_Buffer_Type selected_buffer) {
     uint8_t  nbit;
     uint32_t nbyte = mapBufferIndex(x, y, &nbit);
     if(nbyte == BUFFER_OUT_OF_BOUNDS)
@@ -369,7 +369,7 @@ void PxMATRIX::display(uint16_t show_time) {
 #endif
 
     unsigned long start_time = 0;
-    uint8_t* pBuffer = getBuffer(_active_buffer);
+    uint8_t* pBuffer = getBuffer(PxMATRIX_Buffer_Type::ACTIVE);
     for(uint8_t row = 0; row < _row_pattern; ++row) {
         if(_fast_update && _brightness == 255) {
             // This will clock data into the display while the outputs are still
@@ -413,12 +413,7 @@ void PxMATRIX::flushDisplay(void) {
     latch(0);
 }
 
-void PxMATRIX::clearDisplay(void) {
-    // Update inactive buffer
-    clearDisplay(!_active_buffer);
-}
-
-void PxMATRIX::clearDisplay(bool selected_buffer) {
+void PxMATRIX::clearDisplay(PxMATRIX_Buffer_Type selected_buffer) {
     uint8_t* pBuffer = getBuffer(selected_buffer);
     memset(pBuffer, PxMATRIX_DATA_CLEAR, PxMATRIX_COLOR_DEPTH * _buffer_size);
 }
