@@ -212,6 +212,8 @@ private:
 
     inline void fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, bool selected_buffer);
 
+    inline uint16_t getLatchTime(uint16_t show_time);
+
     // Light up LEDs and hold for show_time microseconds
     inline void latch(uint16_t show_time);
 

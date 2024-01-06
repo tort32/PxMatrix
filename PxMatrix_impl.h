@@ -19,8 +19,8 @@ BSD license, check LICENSE for more information
 #endif
 
 #ifdef __AVR__
-#define SPI_BUFFER(x, y) SPI.transfer(x, y)
 #define SPI_BYTE(x)      SPI.transfer(x)
+#define SPI_BUFFER(buf, size) { for(uint16_t cnt = 0; cnt < (size); ++cnt) SPI_BYTE(*((buf) + cnt)); }
 #endif
 
 #include "Arduino.h"
@@ -221,7 +221,7 @@ inline void PxMATRIX::fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, bool sel
 
     // Store pixel level bits separatelly into bit planes
     uint8_t* pBuffer = getBuffer(selected_buffer);
-    for(uint8_t i = 0; i < PxMATRIX_COLOR_DEPTH; i++) {
+    for(uint8_t i = 0; i < PxMATRIX_COLOR_DEPTH; ++i) {
         if(level & _BV(i)) {
             pBuffer[i * _buffer_size + nbyte] |= _BV(nbit);
         } else {
@@ -244,7 +244,7 @@ inline uint8_t PxMATRIX::getPixel(int8_t x, int8_t y, bool selected_buffer) {
     // Restore pixel level from bit planes
     uint8_t* pBuffer = getBuffer(selected_buffer);
     uint8_t  level = 0;
-    for(uint8_t i = 0; i < PxMATRIX_COLOR_DEPTH; i++) {
+    for(uint8_t i = 0; i < PxMATRIX_COLOR_DEPTH; ++i) {
         if(pBuffer[i * _buffer_size + nbyte] & _BV(nbit))
             level |= _BV(i);
     }
@@ -295,7 +295,7 @@ void PxMATRIX::begin(uint8_t row_pattern) {
 
     // Precompute row offset values (the last byte of pattern plane)
     _row_offset = new uint32_t[_row_pattern];
-    for(uint8_t row = 0; row < _row_pattern; row++) {
+    for(uint8_t row = 0; row < _row_pattern; ++row) {
         _row_offset[row] = row * _send_buffer_size + (_send_buffer_size - 1);
     }
 }
@@ -333,18 +333,36 @@ void PxMATRIX::latch(uint16_t show_time) {
     }
 }
 
+uint16_t PxMATRIX::getLatchTime(uint16_t show_time) {
+#if PxMATRIX_COLOR_DEPTH == 1
+    return (show_time * _brightness) / 255;
+#else
+    // Display bit planes in Bit Angle Modulation
+    // Thus show_time is a total time to show all bit planes
+#ifndef __AVR__
+    return ((show_time * (1 << _display_color) * _brightness) / 255 / 2);
+#else
+    // AVR8 archtecture has 16-bit integer so overflow may occure
+    if(show_time >= (65535U >> (PxMATRIX_COLOR_DEPTH - 1)))
+        show_time = (65535U >> (PxMATRIX_COLOR_DEPTH - 1));
+    uint16_t latch_time = show_time * (1 << _display_color);
+    if(latch_time > 512) {
+        return (latch_time / 255) * _brightness / 2;
+    } else if(latch_time > 256) {
+        return (latch_time / 2) * _brightness / 255;
+    } else {
+        return (latch_time * _brightness) / 255 / 2;
+    }
+#endif /* __AVR__ */
+#endif /* PxMATRIX_COLOR_DEPTH */
+}
+
 void PxMATRIX::display(uint16_t show_time) {
     if(show_time == 0)
         show_time = 1;
 
     // How long do we keep the pixels on
-#if PxMATRIX_COLOR_DEPTH != 1
-    // Display bit planes in Bit Angle Modulation
-    // Thus show_time is a total time to show all bit planes
-    uint16_t latch_time = ((show_time * (1 << _display_color) * _brightness) / 255 / 2);
-#else
-    uint16_t latch_time = (show_time * _brightness) / 255;
-#endif
+    uint16_t latch_time = getLatchTime(show_time);
 
 #ifdef ESP8266
     ESP.wdtFeed();
@@ -352,7 +370,7 @@ void PxMATRIX::display(uint16_t show_time) {
 
     unsigned long start_time = 0;
     uint8_t* pBuffer = getBuffer(_active_buffer);
-    for(uint8_t i = 0; i < _row_pattern; i++) {
+    for(uint8_t row = 0; i < _row_pattern; ++row) {
         if(_fast_update && _brightness == 255) {
             // This will clock data into the display while the outputs are still
             // latched (LEDs on). We therefore utilize SPI transfer latency as LED
@@ -360,7 +378,7 @@ void PxMATRIX::display(uint16_t show_time) {
             // timing sensitive and may lead to flicker however promises reduced
             // update times and increased brightness
 
-            set_mux(i);
+            set_mux(row);
             digitalWrite(_LATCH_PIN, HIGH ^ PxMATRIX_LATCH_INVERT);
             digitalWrite(_LATCH_PIN, LOW ^ PxMATRIX_LATCH_INVERT);
             digitalWrite(_OE_PIN, LOW ^ PxMATRIX_OE_INVERT);
@@ -368,7 +386,7 @@ void PxMATRIX::display(uint16_t show_time) {
             delayMicroseconds(1);
             if(i < _row_pattern - 1) {
                 // This pre-buffers the data for the next row pattern of this _display_color
-                SPI_BUFFER(&pBuffer[_display_color * _buffer_size + (i + 1) * _send_buffer_size], _send_buffer_size);
+                SPI_BUFFER(&pBuffer[_display_color * _buffer_size + (row + 1) * _send_buffer_size], _send_buffer_size);
             } else {
                 // This pre-buffers the data for the first row pattern of the next _display_color
                 SPI_BUFFER(&pBuffer[((_display_color + 1) % PxMATRIX_COLOR_DEPTH) * _buffer_size], _send_buffer_size);
@@ -379,16 +397,8 @@ void PxMATRIX::display(uint16_t show_time) {
 
             digitalWrite(_OE_PIN, HIGH ^ PxMATRIX_OE_INVERT);
         } else {
-            set_mux(i);
-#ifdef __AVR__
-            uint8_t this_byte;
-            for(uint32_t byte_cnt = 0; byte_cnt < _send_buffer_size; byte_cnt++) {
-                this_byte = pBuffer[_display_color * _buffer_size + i * _send_buffer_size + byte_cnt];
-                SPI_BYTE(this_byte);
-            }
-#else
-            SPI_BUFFER(&pBuffer[_display_color * _buffer_size + i * _send_buffer_size], _send_buffer_size);
-#endif
+            set_mux(row);
+            SPI_BUFFER(&pBuffer[_display_color * _buffer_size + row * _send_buffer_size], _send_buffer_size);
             latch(latch_time);
         }
     }
@@ -398,7 +408,7 @@ void PxMATRIX::display(uint16_t show_time) {
 }
 
 void PxMATRIX::flushDisplay(void) {
-    for(int i = 0; i < _send_buffer_size; ++i)
+    for(uint16_t i = 0; i < _send_buffer_size; ++i)
         SPI_BYTE(PxMATRIX_DATA_CLEAR);
     latch(0);
 }
