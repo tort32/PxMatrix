@@ -173,7 +173,7 @@ private:
     uint8_t _display_color;
 
     // Holds some pre-computed values for faster pixel drawing
-    uint32_t* _row_offset;
+    uint16_t* _row_offset;
 
     // Total number of bytes that is pushed to the display at a time (single scan line)
     // = (HEIGHT / _row_pattern) * (WIDTH / 8) * PxMATRIX_COLOR_COMP
@@ -197,12 +197,12 @@ private:
     uint8_t _mux_delay_D;
     uint8_t _mux_delay_E;
 
-    static const uint32_t BUFFER_OUT_OF_BOUNDS = UINT32_MAX;
+    static const uint16_t BUFFER_OUT_OF_BOUNDS = UINT16_MAX;
 
 private:
     inline uint8_t* getBuffer(PxMATRIX_Buffer_Type selected_buffer);
 
-    inline uint32_t mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit);
+    inline uint16_t mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit);
 
     inline uint8_t mapColorLevel(uint8_t r);
 

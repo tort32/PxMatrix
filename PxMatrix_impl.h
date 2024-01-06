@@ -93,13 +93,8 @@ inline void PxMATRIX::setBrightness(uint8_t brightness) {
 
 inline PxMATRIX::PxMATRIX(uint16_t width, uint16_t height, uint8_t LATCH, uint8_t OE, uint8_t A, uint8_t B, uint8_t C, uint8_t D, uint8_t E)
   : Adafruit_GFX(width, height)
-  , _LATCH_PIN(LATCH)
-  , _OE_PIN(OE)
-  , _A_PIN(A)
-  , _B_PIN(B)
-  , _C_PIN(C)
-  , _D_PIN(D)
-  , _E_PIN(E)
+  , _LATCH_PIN(LATCH), _OE_PIN(OE)
+  , _A_PIN(A), _B_PIN(B), _C_PIN(C), _D_PIN(D), _E_PIN(E)
   , _buffer_size(WIDTH * HEIGHT * PxMATRIX_COLOR_COMP / 8) {
 
     _row_pattern = 0;
@@ -157,7 +152,7 @@ inline void PxMATRIX::copyBuffer(bool reverse) {
 }
 
 
-inline uint32_t PxMATRIX::mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit) {
+inline uint16_t PxMATRIX::mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit) {
     if(_rotate) {
         int16_t temp_x = x;
         x = y;
@@ -185,7 +180,7 @@ inline uint32_t PxMATRIX::mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit) {
     uint8_t y_index = y / _row_pattern;
     uint8_t row_index = y % _row_pattern;
 
-    uint32_t offset = y_index + _rows_per_pattern * x_index + (_panel_width_bytes * _rows_per_pattern) * panel_index;
+    uint16_t offset = y_index + _rows_per_pattern * x_index + (_panel_width_bytes * _rows_per_pattern) * panel_index;
     return _row_offset[row_index] - offset;
 }
 
@@ -294,7 +289,7 @@ void PxMATRIX::begin(uint8_t row_pattern) {
     }
 
     // Precompute row offset values (the last byte of pattern plane)
-    _row_offset = new uint32_t[_row_pattern];
+    _row_offset = new uint16_t[_row_pattern];
     for(uint8_t row = 0; row < _row_pattern; ++row) {
         _row_offset[row] = row * _send_buffer_size + (_send_buffer_size - 1);
     }
