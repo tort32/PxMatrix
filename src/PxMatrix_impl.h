@@ -91,14 +91,11 @@ inline void PxMATRIX::setBrightness(uint8_t brightness) {
     _brightness = brightness;
 }
 
-inline PxMATRIX::PxMATRIX(uint16_t width, uint16_t height, uint8_t LATCH, uint8_t OE, uint8_t A, uint8_t B, uint8_t C, uint8_t D, uint8_t E)
-  : Adafruit_GFX(width, height)
-  , _LATCH_PIN(LATCH), _OE_PIN(OE)
-  , _A_PIN(A), _B_PIN(B), _C_PIN(C), _D_PIN(D), _E_PIN(E) {
-
+inline void PxMATRIX::init() {
     _row_pattern = 0;
     _panels_width = 1;
     _panel_width_bytes = WIDTH / 8;
+    _panel_height = HEIGHT / _LATCH_PINS.size;
 
     _active_buffer = false;
     _display_color = 0;
@@ -176,11 +173,13 @@ inline uint16_t PxMATRIX::mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit) {
     uint8_t x_byte = x / 8;
     uint8_t panel_index = x_byte / _panel_width_bytes;
     uint8_t x_index = x_byte % _panel_width_bytes;
-    uint8_t y_index = y / _row_pattern;
-    uint8_t row_index = y % _row_pattern;
+    uint8_t h_index = y / _panel_height;
+    uint8_t y_pos = y % _panel_height;
+    uint8_t y_index = y_pos / _row_pattern;
+    uint8_t row_index = y_pos % _row_pattern;
 
     uint16_t offset = y_index + _rows_per_pattern * x_index + (_panel_width_bytes * _rows_per_pattern) * panel_index;
-    return _row_offset[row_index] - offset;
+    return _row_offset[row_index + h_index * _row_pattern] - offset;
 }
 
 inline uint8_t PxMATRIX::mapColorLevel(uint8_t r) {
@@ -261,64 +260,57 @@ void PxMATRIX::spi_init() {
 
 void PxMATRIX::begin(uint8_t row_pattern) {
     _row_pattern = row_pattern;
-    _rows_per_pattern = HEIGHT / _row_pattern;
+    _rows_per_pattern = HEIGHT / (_LATCH_PINS.size * _row_pattern);
     uint8_t _pattern_color_bytes = _rows_per_pattern * WIDTH / 8;
     _send_buffer_size = _pattern_color_bytes * PxMATRIX_COLOR_COMP;
 
     spi_init();
 
     pinMode(_OE_PIN, OUTPUT);
-    pinMode(_LATCH_PIN, OUTPUT);
-    pinMode(_A_PIN, OUTPUT);
-    pinMode(_B_PIN, OUTPUT);
-    digitalWrite(_A_PIN, LOW);
-    digitalWrite(_B_PIN, LOW);
     digitalWrite(_OE_PIN, HIGH ^ PxMATRIX_OE_INVERT);
-    digitalWrite(_LATCH_PIN, LOW ^ PxMATRIX_LATCH_INVERT);
-    if(_row_pattern >= 8) {
-        pinMode(_C_PIN, OUTPUT);
-        digitalWrite(_C_PIN, LOW);
+    for(uint8_t i = 0; i < _LATCH_PINS.size; ++i) {
+        uint8_t pin = _LATCH_PINS[i];
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, LOW ^ PxMATRIX_LATCH_INVERT);
     }
-    if(_row_pattern >= 16) {
-        pinMode(_D_PIN, OUTPUT);
-        digitalWrite(_D_PIN, LOW);
-    }
-    if(_row_pattern >= 32) {
-        pinMode(_E_PIN, OUTPUT);
-        digitalWrite(_E_PIN, LOW);
+    for(uint8_t i = 0; i < _MUX_PINS.size; ++i) {
+        if(_row_pattern < _BV(i)) break;
+        uint8_t pin = _MUX_PINS[i];
+        pinMode(pin, OUTPUT);
+        digitalWrite(pin, LOW);
     }
 
     // Precompute row offset values (the last byte of pattern plane)
-    _row_offset = new uint16_t[_row_pattern];
-    for(uint8_t row = 0; row < _row_pattern; ++row) {
-        _row_offset[row] = row * _send_buffer_size + (_send_buffer_size - 1);
-    }
+    _row_offset = new uint16_t[_row_pattern * _LATCH_PINS.size];
+    for(uint8_t line = 0; line < _LATCH_PINS.size; ++line)
+        for(uint8_t row = 0; row < _row_pattern; ++row) {
+            _row_offset[_row_pattern * line + row] = _send_buffer_size * (_row_pattern * line + row) + (_send_buffer_size - 1);
+        }
 }
 
 void PxMATRIX::set_mux(uint8_t value) {
-    digitalWrite(_A_PIN, (value & 0x01) ? HIGH : LOW);
-    if(_mux_delay_A) delayMicroseconds(_mux_delay_A);
-
-    digitalWrite(_B_PIN, (value & 0x02) ? HIGH : LOW);
-    if(_mux_delay_B) delayMicroseconds(_mux_delay_B);
-
-    if(_row_pattern >= 8) {
-        digitalWrite(_C_PIN, (value & 0x04) ? HIGH : LOW);
-        if(_mux_delay_C) delayMicroseconds(_mux_delay_C);
-    }
-    if(_row_pattern >= 16) {
-        digitalWrite(_D_PIN, (value & 0x08) ? HIGH : LOW);
-        if(_mux_delay_D) delayMicroseconds(_mux_delay_D);
-    }
-    if(_row_pattern >= 32) {
-        digitalWrite(_E_PIN, (value & 0x10) ? HIGH : LOW);
-        if(_mux_delay_E) delayMicroseconds(_mux_delay_E);
+    for(uint8_t i = 0; i < _MUX_PINS.size; ++i) {
+        if(_row_pattern < _BV(i)) break;
+        digitalWrite(_MUX_PINS[i], (value & _BV(i)) ? HIGH : LOW);
+        if(i == 0 && _mux_delay_A) delayMicroseconds(_mux_delay_A);
+        if(i == 1 && _mux_delay_B) delayMicroseconds(_mux_delay_B);
+        if(i == 2 && _mux_delay_C) delayMicroseconds(_mux_delay_C);
+        if(i == 3 && _mux_delay_D) delayMicroseconds(_mux_delay_D);
+        if(i == 4 && _mux_delay_E) delayMicroseconds(_mux_delay_E);
     }
 }
 
-void PxMATRIX::latch(uint16_t show_time) {
-    digitalWrite(_LATCH_PIN, HIGH ^ PxMATRIX_LATCH_INVERT);
-    digitalWrite(_LATCH_PIN, LOW ^ PxMATRIX_LATCH_INVERT);
+void PxMATRIX::latch(uint16_t show_time, uint8_t latch_index) {
+    if(latch_index == LATCH_ALL) {
+        for(uint8_t i = 0; i < _LATCH_PINS.size; ++i) {
+            uint8_t pin = _LATCH_PINS[i];
+            digitalWrite(pin, HIGH ^ PxMATRIX_LATCH_INVERT);
+            digitalWrite(pin, LOW ^ PxMATRIX_LATCH_INVERT);
+        }
+    } else if(latch_index != LATCH_NONE) {
+        digitalWrite(_LATCH_PINS[latch_index], HIGH ^ PxMATRIX_LATCH_INVERT);
+        digitalWrite(_LATCH_PINS[latch_index], LOW ^ PxMATRIX_LATCH_INVERT);
+    }
     if(show_time > 0) {
         digitalWrite(_OE_PIN, LOW ^ PxMATRIX_OE_INVERT);
         unsigned long start_time = micros();
@@ -366,7 +358,7 @@ void PxMATRIX::display(uint16_t show_time) {
     unsigned long start_time = 0;
     uint8_t* pBuffer = getBuffer(PxMATRIX::Buffer_Type::ACTIVE);
     for(uint8_t row = 0; row < _row_pattern; ++row) {
-        if(_fast_update && _brightness == 255) {
+        if(_fast_update && _brightness == 255 && _LATCH_PINS.size == 1) {
             // This will clock data into the display while the outputs are still
             // latched (LEDs on). We therefore utilize SPI transfer latency as LED
             // ON time and can reduce the waiting time (show_time). This is rather
@@ -374,8 +366,8 @@ void PxMATRIX::display(uint16_t show_time) {
             // update times and increased brightness
 
             set_mux(row);
-            digitalWrite(_LATCH_PIN, HIGH ^ PxMATRIX_LATCH_INVERT);
-            digitalWrite(_LATCH_PIN, LOW ^ PxMATRIX_LATCH_INVERT);
+            digitalWrite(_LATCH_PINS[0], HIGH ^ PxMATRIX_LATCH_INVERT);
+            digitalWrite(_LATCH_PINS[0], LOW ^ PxMATRIX_LATCH_INVERT);
             digitalWrite(_OE_PIN, LOW ^ PxMATRIX_OE_INVERT);
             start_time = micros();
             delayMicroseconds(1);
@@ -393,8 +385,11 @@ void PxMATRIX::display(uint16_t show_time) {
             digitalWrite(_OE_PIN, HIGH ^ PxMATRIX_OE_INVERT);
         } else {
             set_mux(row);
-            SPI_BUFFER(&pBuffer[_display_color * _buffer_size + row * _send_buffer_size], _send_buffer_size);
-            latch(latch_time);
+            for(uint8_t line = 0; line < _LATCH_PINS.size; ++line) {
+                SPI_BUFFER(&pBuffer[_display_color * _buffer_size + (_row_pattern * line + row) * _send_buffer_size], _send_buffer_size);
+                latch(0, line); // latch pulse
+            }
+            latch(latch_time, LATCH_NONE); // delay
         }
     }
     ++_display_color;
@@ -405,7 +400,7 @@ void PxMATRIX::display(uint16_t show_time) {
 void PxMATRIX::flushDisplay(void) {
     for(uint16_t i = 0; i < _send_buffer_size; ++i)
         SPI_BYTE(PxMATRIX_DATA_CLEAR);
-    latch(0);
+    latch(0, LATCH_ALL);
 }
 
 void PxMATRIX::clearDisplay(PxMATRIX::Buffer_Type selected_buffer) {

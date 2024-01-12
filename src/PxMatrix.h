@@ -64,6 +64,10 @@ BSD license, check LICENSE for more information
 
 #include "Adafruit_GFX.h"
 
+#ifdef __AVR__
+#include "PxMatrix_avr_stl.h"
+#endif
+
 #ifdef PxMATRIX_GAMMA_PRESET
 #include "PxMatrix_gamma.h"
 #endif
@@ -73,15 +77,70 @@ class PxMATRIX : public Adafruit_GFX
 public:
     enum Buffer_Type {ACTIVE, INACTIVE, FIRST, SECOND};
 
+    class Output_Pins {
+    public:
+        Output_Pins() = delete;
+        
+        inline Output_Pins(const std::initializer_list<uint8_t>& list)
+          : size{ (uint8_t)list.size() }, arr{ _Copy(list.begin(), size) } {};
+        
+        inline Output_Pins(const Output_Pins& v)
+          : size{ v.size }, arr{ _Copy(v.arr, v.size) } {};
+
+        inline Output_Pins(Output_Pins&& v)
+          : size{ v.size }, arr{ v._Release() } {};
+
+        inline ~Output_Pins() {
+            if(arr != nullptr) {
+                delete[] arr;
+                arr = nullptr;
+            }
+        }
+        
+        Output_Pins& operator=(const Output_Pins&) = delete;
+        Output_Pins& operator=(Output_Pins&&) = delete;
+
+    private:
+        static const uint8_t* _Copy(const uint8_t* data, const uint8_t size) {
+            uint8_t* tmp = new uint8_t[size];
+            memcpy(tmp, data, size);
+            return tmp;
+        }
+
+        const uint8_t* _Release() {
+            const uint8_t* tmp = arr;
+            arr = nullptr;
+            return tmp;
+        }
+
+    public:
+        inline const uint8_t& operator[](const uint8_t i) const { return arr[i]; }
+        inline const uint8_t* data() const { return arr; }
+    public:
+        const uint8_t  size;
+    protected:
+        const uint8_t* arr;
+    };
+
     // Create output display for LED matrix
     // Size of width and height = total number of LEDs in width and height for the whole matrix.
-    //   Number of matrix pannels should be set with "setPanelsWidth" method.
+    //   Number of matrix pannels in width should be set with "setPanelsWidth" method.
+    //   Number of matrix pannels in height is definded by number of latch pins.
     // LATCH = output pin for Register Latch signal (can be named as L, LAT, STB or SCLK)
     // OE = output pin for Output Enable (to light pixels of the current selected scanline)
     // A,B,C,D,E = ouput pins for scan pattern demultiplexing (to select current scanline)
     //   Scanline pattern (number of scans) should be passed as "begin" method argument.
     // NOTE: SPI pins MOSI and CLK are used to send data to shift registers (see board pinouts).
-    inline PxMATRIX(uint16_t width, uint16_t height, uint8_t LATCH, uint8_t OE, uint8_t A, uint8_t B, uint8_t C = 0, uint8_t D = 0, uint8_t E = 0);
+    inline PxMATRIX(uint16_t width, uint16_t height, uint8_t LATCH, uint8_t OE, uint8_t A, uint8_t B, uint8_t C = 0, uint8_t D = 0, uint8_t E = 0)
+        : PxMATRIX(width, height, {{LATCH}}, OE, {{A, B, C, D, E}}) {}
+
+    inline PxMATRIX(uint16_t width, uint16_t height, const Output_Pins& LATCH, uint8_t OE, const Output_Pins& MUX)
+        : Adafruit_GFX(width, height)
+        , _OE_PIN{OE}, _LATCH_PINS{LATCH}, _MUX_PINS{MUX} { init(); }
+
+    inline PxMATRIX(uint16_t width, uint16_t height, Output_Pins&& LATCH, uint8_t OE, Output_Pins&& MUX)
+        : Adafruit_GFX(width, height)
+        , _OE_PIN{OE}, _LATCH_PINS{std::move(LATCH)}, _MUX_PINS{std::move(MUX)} { init(); }
 
     // Prepare to render display
     // row_pattern = number of scan lines to display whole image (defined by hardware)
@@ -146,15 +205,11 @@ private:
 #endif
 
     // GPIO pins
-    const uint8_t _LATCH_PIN;
     const uint8_t _OE_PIN;
-    const uint8_t _A_PIN;
-    const uint8_t _B_PIN;
-    const uint8_t _C_PIN;
-    const uint8_t _D_PIN;
-    const uint8_t _E_PIN;
+    const Output_Pins _LATCH_PINS;
+    const Output_Pins _MUX_PINS;
 
-    // Number of chained panels
+    // Number of chained panels in width
     uint8_t _panels_width;
 
     // Number of scan lines
@@ -164,6 +219,8 @@ private:
     uint8_t _rows_per_pattern;
     // Number of panel bytes in width (number of shift registers by width at a single matrix)
     uint8_t _panel_width_bytes;
+    // Number of panel rows (number of LEDs by height at a single matrix)
+    uint8_t _panel_height;
 
     // Panel Brightness
     uint8_t _brightness;
@@ -200,6 +257,8 @@ private:
     static const uint16_t BUFFER_OUT_OF_BOUNDS = UINT16_MAX;
 
 private:
+    inline void init();
+
     inline uint8_t* getBuffer(Buffer_Type selected_buffer);
 
     inline uint16_t mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit);
@@ -213,7 +272,9 @@ private:
     inline uint16_t getLatchTime(uint16_t show_time);
 
     // Light up LEDs and hold for show_time microseconds
-    inline void latch(uint16_t show_time);
+    static const uint8_t LATCH_ALL = 0xFF;
+    static const uint8_t LATCH_NONE = 0xFE;
+    inline void latch(uint16_t show_time, uint8_t latch_index = LATCH_ALL);
 
     // Set multiplexer scan line
     inline void set_mux(uint8_t value);
