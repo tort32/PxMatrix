@@ -68,11 +68,11 @@ BSD license, check LICENSE for more information
 #include "PxMatrix_gamma.h"
 #endif
 
-enum PxMATRIX_Buffer_Type {ACTIVE, INACTIVE, FIRST, SECOND};
-
 class PxMATRIX : public Adafruit_GFX
 {
 public:
+    enum Buffer_Type {ACTIVE, INACTIVE, FIRST, SECOND};
+
     // Create output display for LED matrix
     // Size of width and height = total number of LEDs in width and height for the whole matrix.
     //   Number of matrix pannels should be set with "setPanelsWidth" method.
@@ -85,11 +85,11 @@ public:
 
     // Prepare to render display
     // row_pattern = number of scan lines to display whole image (defined by hardware)
-    //   Typical display scan rates: 1/4, 1/8, 1/16, 1/32, 1/64
-    inline void begin(uint8_t row_pattern = 8);
+    //   Typical display scan rates: 1/4, 1/8, 1/16, 1/32
+    inline void begin(uint8_t row_pattern = 4);
 
     // Clear display buffer
-    inline void clearDisplay(PxMATRIX_Buffer_Type selected_buffer = PxMATRIX_Buffer_Type::INACTIVE);
+    inline void clearDisplay(Buffer_Type selected_buffer = Buffer_Type::INACTIVE);
 
     // Render buffer at display
     inline void display(uint16_t show_time = PxMATRIX_DEFAULT_SHOWTIME);
@@ -98,7 +98,7 @@ public:
     inline void drawPixel(int16_t x, int16_t y, uint16_t color = 0xFF) override;
 
     // Read pixel
-    uint8_t getPixel(int8_t x, int8_t y, PxMATRIX_Buffer_Type selected_buffer = PxMATRIX_Buffer_Type::ACTIVE);
+    uint8_t getPixel(int8_t x, int8_t y, Buffer_Type selected_buffer = Buffer_Type::ACTIVE);
 
     // Flush the display registers (example at startup to purge previous data)
     // NOTE: It doesn't clear the buffer (use clearDisplay instead)
@@ -179,7 +179,7 @@ private:
     // = (HEIGHT / _row_pattern) * (WIDTH / 8) * PxMATRIX_COLOR_COMP
     uint16_t _send_buffer_size;
     // Total number of bytes for display to refresh (all scan lines)
-    const uint16_t _buffer_size;
+    uint16_t _buffer_size;
 
     // This is for double buffering
     // Initially _active_buffer = false means that PxMATRIX_buffer is displayed and pixels are drawing into PxMATRIX_buffer2
@@ -200,7 +200,7 @@ private:
     static const uint16_t BUFFER_OUT_OF_BOUNDS = UINT16_MAX;
 
 private:
-    inline uint8_t* getBuffer(PxMATRIX_Buffer_Type selected_buffer);
+    inline uint8_t* getBuffer(Buffer_Type selected_buffer);
 
     inline uint16_t mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit);
 
@@ -208,7 +208,7 @@ private:
 
     inline uint8_t unmapColorLevel(uint8_t level);
 
-    inline void fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, PxMATRIX_Buffer_Type selected_buffer);
+    inline void fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, Buffer_Type selected_buffer);
 
     inline uint16_t getLatchTime(uint16_t show_time);
 
