@@ -45,6 +45,9 @@ portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 Ticker ticker;
 #elif defined(__AVR__)
 #define USE_TIMER_2 true
+#ifndef min
+#define min(a,b) ((a)<(b)?(a):(b))
+#endif
 #include "TimerInterrupt.h"
 #define IRAM_ATTR
 #endif

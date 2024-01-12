@@ -11,26 +11,29 @@
 
 // Define output pins
 #if defined(ESP32)
-#define P_A   16
-#define P_B   17
-#define P_OE  22
-#define P_LAT 21
+#define P_A    16
+#define P_B    17
+#define P_OE   22
+#define P_LAT  21
+#define P_LAT2 5
 // SPI pins (for the reference)
 const uint8_t SPI_MOSI = 23;
 const uint8_t SPI_SCK  = 18;
 #elif defined(ESP8266)
-#define P_A   9
-#define P_B   10
-#define P_OE  5
-#define P_LAT 4
+#define P_A    9
+#define P_B    10
+#define P_OE   5
+#define P_LAT  4
+#define P_LAT2 16
 // SPI pins (for the reference)
 const uint8_t SPI_MOSI = 13;
 const uint8_t SPI_SCK  = 14;
 #elif defined(__AVR__)
-#define P_A   2
-#define P_B   3
-#define P_LAT 7
-#define P_OE  8
+#define P_A    2
+#define P_B    3
+#define P_OE   8
+#define P_LAT  7
+#define P_LAT2 6
 // SPI pins (for the reference)
 const uint8_t SPI_MOSI = 11;
 const uint8_t SPI_SCK  = 13;
@@ -46,13 +49,19 @@ Ticker ticker;
 #endif
 #if defined(__AVR__)
 #define USE_TIMER_2 true
+#ifndef min
+#define min(a,b) ((a)<(b)?(a):(b))
+#endif
 #include "TimerInterrupt.h"
 #endif
 
 const uint8_t WIDTH = 32;
 const uint8_t HEIGHT = 16;
+PxMATRIX display(WIDTH, HEIGHT, P_LAT1, P_OE, P_A, P_B);
 
-PxMATRIX display(WIDTH, HEIGHT, P_LAT, P_OE, P_A, P_B);
+//const uint8_t WIDTH = 32;
+//const uint8_t HEIGHT = 32;
+//PxMATRIX display(WIDTH, HEIGHT, { P_LAT, P_LAT2 }, P_OE, { P_A, P_B });
 
 #ifdef ESP32
 void IRAM_ATTR display_updater() {
@@ -61,9 +70,14 @@ void IRAM_ATTR display_updater() {
     portEXIT_CRITICAL_ISR(&timerMux);
 }
 #endif
-#if defined(ESP8266) || defined(__AVR__)
+#if defined(ESP8266)
 void display_updater() {
     display.display(32);
+}
+#endif
+#if defined(__AVR__)
+void display_updater() {
+    display.display(64);
 }
 #endif
 
@@ -87,11 +101,11 @@ void setup() {
     timerAlarmEnable(timer);
 #endif
 #ifdef ESP8266
-    ticker.attach(0.001, display_updater); // 1 ms
+    ticker.attach(0.005, display_updater); // 5 ms
 #endif
 #ifdef __AVR__
     ITimer2.init();
-    ITimer2.attachInterruptInterval(1, display_updater); // 1 ms
+    ITimer2.attachInterruptInterval(10, display_updater); // 10 ms
 #endif
 
     delay(1000);
@@ -170,7 +184,10 @@ void loop() {
         ++wave;
     }
     display.showBuffer();
-#if defined(ESP32) || defined(ESP8266)
+#ifdef ESP32
     delay(40);
+#endif
+#ifdef ESP8266
+    delay(10);
 #endif
 }
