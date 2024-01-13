@@ -55,12 +55,14 @@ Ticker ticker;
 #include "TimerInterrupt.h"
 #endif
 
+// Single matrix module example
 const uint8_t WIDTH = 32;
 const uint8_t HEIGHT = 16;
-PxMATRIX display(WIDTH, HEIGHT, P_LAT1, P_OE, P_A, P_B);
+PxMATRIX display(WIDTH, HEIGHT, P_LAT, P_OE, P_A, P_B);
 
-//const uint8_t WIDTH = 32;
-//const uint8_t HEIGHT = 32;
+// Matrix array example for 8 panels in 4 by 2 grid
+//const uint8_t WIDTH = 32 * 4;
+//const uint8_t HEIGHT = 16 * 2;
 //PxMATRIX display(WIDTH, HEIGHT, { P_LAT, P_LAT2 }, P_OE, { P_A, P_B });
 
 #ifdef ESP32
@@ -123,7 +125,7 @@ int8_t modulo(int8_t a, int8_t b) {
 const uint16_t lifeCellsThreashold = (HEIGHT >> 3) * (WIDTH >> 3);
 
 // Stall check logic is taken from https://github.com/f0rthsp4ce/ledka/blob/main/main/life.c
-// Kudos for F0RTHSP4CE
+// Kudos to F0RTHSP4CE
 uint16_t hist[12];
 uint8_t  hist_idx = 0;
 inline bool is_stalled(uint8_t period) {
