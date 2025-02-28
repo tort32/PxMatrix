@@ -229,7 +229,7 @@ inline void PxMATRIX::fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, PxMATRIX
     }
 }
 
-inline uint8_t PxMATRIX::getPixel(int8_t x, int8_t y, PxMATRIX::Buffer_Type selected_buffer) {
+inline uint8_t PxMATRIX::getPixel(int16_t x, int16_t y, PxMATRIX::Buffer_Type selected_buffer) {
     uint8_t  nbit;
     uint32_t nbyte = mapBufferIndex(x, y, &nbit);
     if(nbyte == BUFFER_OUT_OF_BOUNDS)

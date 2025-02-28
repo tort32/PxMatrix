@@ -157,7 +157,7 @@ public:
     inline void drawPixel(int16_t x, int16_t y, uint16_t color = 0xFF) override;
 
     // Read pixel
-    uint8_t getPixel(int8_t x, int8_t y, Buffer_Type selected_buffer = Buffer_Type::ACTIVE);
+    uint8_t getPixel(int16_t x, int16_t y, Buffer_Type selected_buffer = Buffer_Type::ACTIVE);
 
     // Flush the display registers (example at startup to purge previous data)
     // NOTE: It doesn't clear the buffer (use clearDisplay instead)
