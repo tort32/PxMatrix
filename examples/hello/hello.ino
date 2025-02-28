@@ -5,6 +5,7 @@
 #define PxMATRIX_DOUBLE_BUFFER 1
 
 #ifdef ESP8266
+// May require lower frequency (try 10MHz or even lower)
 #define PxMATRIX_SPI_FREQUENCY 16000000L
 #endif
 
