@@ -76,6 +76,7 @@ class PxMATRIX : public Adafruit_GFX
 {
 public:
     enum Buffer_Type {ACTIVE, INACTIVE, FIRST, SECOND};
+    enum Chain_Mode {LINES, ZIGZAG_DOWN, ZIGZAG_UP};
 
     class Output_Pins {
     public:
@@ -185,6 +186,9 @@ public:
     // Set the number of panels that make up the display area width (default is 1)
     inline void setPanelsWidth(uint8_t panels);
 
+    // Set number of panels in the matrix and panels chaining configuration
+    inline void setMatrixSize(uint8_t width, uint8_t height, Chain_Mode mode = Chain_Mode::LINES);
+
     // Set the brightness of the panels (default is 255)
     inline void setBrightness(uint8_t brightness);
 
@@ -212,8 +216,17 @@ private:
     // Number of chained panels in width
     uint8_t _panels_width;
 
+    // Number of chained panels in height
+    uint8_t _panels_height;
+
     // Number of scan lines
     uint8_t _row_pattern;
+
+    // Panels chaining in the matrix
+    //   LINES - each matrix row controlled by the separate latch pin, data parallels between the rows
+    //   ZIGZAG_DOWN - Controller on the top row, and last panel connected to rotated panel of the lower row, next row unrotated
+    //   ZIGZAG_UP - Controller on the lowest row, and last panel connected to rotated panel of the upper row, next row unrotated
+    Chain_Mode _chaining;
 
     // Number of lines per a scan (number of shift registers by height at a single matrix)
     uint8_t _rows_per_pattern;

@@ -71,8 +71,20 @@ inline void PxMATRIX::setMuxDelay(uint8_t mux_delay_A, uint8_t mux_delay_B, uint
 }
 
 inline void PxMATRIX::setPanelsWidth(uint8_t panels) {
-    _panels_width = panels;
-    _panel_width_bytes = (WIDTH / panels) / 8;
+    setMatrixSize(panels, _LATCH_PINS.size);
+}
+
+inline void PxMATRIX::setMatrixSize(uint8_t width, uint8_t height, Chain_Mode mode) {
+    _chaining = mode;
+    _panels_width = width;
+    _panels_height = height;
+    if(mode == Chain_Mode::LINES) {
+        _panel_width_bytes = (WIDTH / _panels_width) / 8;
+    } else {
+        // Zigzag configuration has all shift registers in a sequence
+        _panel_width_bytes = _panels_height * (WIDTH / 8);
+    }
+    _panel_height = HEIGHT / _panels_height;
 }
 
 inline void PxMATRIX::setRotate(bool rotate) {
@@ -94,8 +106,10 @@ inline void PxMATRIX::setBrightness(uint8_t brightness) {
 inline void PxMATRIX::init() {
     _row_pattern = 0;
     _panels_width = 1;
+    _panels_height = _LATCH_PINS.size;
     _panel_width_bytes = WIDTH / 8;
-    _panel_height = HEIGHT / _LATCH_PINS.size;
+    _panel_height = HEIGHT / _panels_height;
+    _chaining = PxMATRIX::Chain_Mode::LINES;
 
     _active_buffer = false;
     _display_color = 0;
@@ -169,17 +183,37 @@ inline uint16_t PxMATRIX::mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit) {
     // next panel <= 0  4  8 12
     // Each register has bits in reverse order:
     //             7 6 5 4 3 2 1 0
-    *pBit = x % 8;
+    uint8_t nBit = x % 8;
+    uint8_t h_index = y / _panel_height;
+    uint8_t y_pos = y % _panel_height;
+
+    if(_chaining != PxMATRIX::Chain_Mode::LINES) {
+      if(_chaining == PxMATRIX::Chain_Mode::ZIGZAG_DOWN) {
+         h_index = (_panels_height - 1) - h_index;
+      }
+      if(h_index % 2 == 1) {
+        // each odd panel row is rotated
+        y_pos = (_panel_height - 1) - y_pos;
+        x = (WIDTH - 1) - x;
+        nBit = 7 - nBit;
+      }
+      x += WIDTH * h_index;
+    }
     uint8_t x_byte = x / 8;
     uint8_t panel_index = x_byte / _panel_width_bytes;
     uint8_t x_index = x_byte % _panel_width_bytes;
-    uint8_t h_index = y / _panel_height;
-    uint8_t y_pos = y % _panel_height;
     uint8_t y_index = y_pos / _row_pattern;
     uint8_t row_index = y_pos % _row_pattern;
+    *pBit = nBit;
 
-    uint16_t offset = y_index + _rows_per_pattern * x_index + (_panel_width_bytes * _rows_per_pattern) * panel_index;
-    return _row_offset[row_index + h_index * _row_pattern] - offset;
+    uint16_t offset = y_index + _rows_per_pattern * x_index;
+    if(_chaining == PxMATRIX::Chain_Mode::LINES) {
+      offset += (_panel_width_bytes * _rows_per_pattern) * panel_index;
+      row_index += h_index * _row_pattern;
+    } else {
+      offset += _panel_width_bytes * panel_index;
+    }
+    return _row_offset[row_index] - offset;
 }
 
 inline uint8_t PxMATRIX::mapColorLevel(uint8_t r) {
@@ -211,7 +245,7 @@ inline uint8_t PxMATRIX::unmapColorLevel(uint8_t level) {
 }
 
 inline void PxMATRIX::fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, PxMATRIX::Buffer_Type selected_buffer) {
-    uint8_t  nbit;
+    uint8_t  nbit = 0;
     uint32_t nbyte = mapBufferIndex(x, y, &nbit);
     if(nbyte == BUFFER_OUT_OF_BOUNDS)
         return;
@@ -230,7 +264,7 @@ inline void PxMATRIX::fillMatrixBuffer(int16_t x, int16_t y, uint8_t r, PxMATRIX
 }
 
 inline uint8_t PxMATRIX::getPixel(int16_t x, int16_t y, PxMATRIX::Buffer_Type selected_buffer) {
-    uint8_t  nbit;
+    uint8_t  nbit = 0;
     uint32_t nbyte = mapBufferIndex(x, y, &nbit);
     if(nbyte == BUFFER_OUT_OF_BOUNDS)
         return 0;
@@ -260,8 +294,13 @@ void PxMATRIX::spi_init() {
 
 void PxMATRIX::begin(uint8_t row_pattern) {
     _row_pattern = row_pattern;
-    _rows_per_pattern = HEIGHT / (_LATCH_PINS.size * _row_pattern);
-    uint8_t _pattern_color_bytes = _rows_per_pattern * WIDTH / 8;
+    _rows_per_pattern = _panel_height / _row_pattern;
+    uint8_t _pattern_color_bytes = WIDTH / 8;
+    if(_chaining == PxMATRIX::Chain_Mode::LINES) {
+        _pattern_color_bytes *= _rows_per_pattern;
+    } else {
+        _pattern_color_bytes *= HEIGHT / _row_pattern;
+    }
     _send_buffer_size = _pattern_color_bytes * PxMATRIX_COLOR_COMP;
 
     spi_init();
