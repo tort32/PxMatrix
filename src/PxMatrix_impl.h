@@ -188,7 +188,7 @@ inline uint16_t PxMATRIX::mapBufferIndex(int16_t x, int16_t y, uint8_t* pBit) {
     uint8_t y_pos = y % _panel_height;
 
     if(_chaining != PxMATRIX::Chain_Mode::LINES) {
-      if(_chaining == PxMATRIX::Chain_Mode::ZIGZAG_DOWN) {
+      if(_chaining == PxMATRIX::Chain_Mode::ZIGZAG_UP) {
          h_index = (_panels_height - 1) - h_index;
       }
       if(h_index % 2 == 1) {
