@@ -1,7 +1,7 @@
 [![PlatformIO Registry](https://badges.registry.platformio.org/packages/tort32/library/PxMatrix-1R.svg)](https://registry.platformio.org/libraries/tort32/PxMatrix-1R)
 [![arduino-library-badge](https://www.ardu-badge.com/badge/PxMatrix-1R.svg?)](https://www.ardu-badge.com/PxMatrix-1R)
 
-# PxMatrix 1R - monochrome LED matrix panel driver for ESP8266, ESP32 and ATMEL
+# PxMatrix 1R - monochrome LED matrix panel driver for ESP8266, ESP32 and AVR
 
 This is library version adapted for monocrome displays.
 
@@ -62,3 +62,63 @@ void setup() {
 ```
 
 Rows can be stacked **Top to Bottom** (controller input on top as showned) or **Bottom to Top** (controller at the bottom row - DMD style).
+
+## Performance considerations
+
+The library implements display scanning routine via blocking function which is called by the timer interrpution.
+This means that some of the execution time will be spent on these calls depending on the core frequency, timer period, and display active time.
+Any additional long blocking interruptions (for example HTTP Server requests) can cause timing jitter for scanning routine that may effect on apparent brightness (display flickering).
+
+For better performance **Hardware SPI** should be used to push data into the display.
+AVR microcontrollers (like on Arduino UNO R3 board) have lower clock frequency, smaller memory and sometimes only **Software SPI** implementation via bit-banging which is notoriously slow.
+But still small (1-2 modules) display can be driven with lower FPS and grayscale depth.
+
+ESP32 controller is recommended for larger displays.
+
+## Gamma correction and grayscale depth
+
+By default you may notice that grayscale images lack of dark tones.
+For the better rendering a gamma correction should be used.
+
+The library provides multiple gamma lookup tables to choose by #define macro:
+value | PxMATRIX_GAMMA_PRESET
+-----:|:--
+1.0 | undefined
+1.8 | 1
+2.0 | 2
+2.2 | 3
+2.4 | 4
+2.6 | 5
+2.8 | 6
+
+Grayscale depth also can be adjusted by macro `PxMATRIX_COLOR_DEPTH` in a range from 1 bit - black/white, to 8 bits maximum - 256 semi-tones (including black and white). Default is 4 (16 tones).
+
+## Double buffer
+
+Double buffering technique can be enabled by macro `PxMATRIX_DOUBLE_BUFFER`.
+This helps eliminate Screen Tearing effect when frame is being rendered partially drawned.
+
+``` cpp
+#define PxMATRIX_DOUBLE_BUFFER 1
+PxMATRIX display(WIDTH, HEIGHT, PIN_LAT, PIN_OE, PIN_A, PIN_B);
+void IRAM_ATTR display_updater() {
+    // Render pixels (read) from Buffer_Type::ACTIVE
+    display.display(50); // Render each scan line for 50 microseconds (total time ~0.2 ms)
+}
+void setup() {
+    display.begin(4); // Scan rate 1/4
+    ...
+    timer = timerBegin(1000000); // 1MHz
+    timerAttachInterrupt(timer, &display_updater);
+    timerAlarm(timer, 1000, true, 0); // 1MHz / 1000 = 1 ms period
+    ...
+}
+void loop() {
+    // Drawing pixels (write) to Buffer_Type::INACTIVE
+    drawFrame(); // <--- Frame update here
+    display.showBuffer(); // Swap active buffer
+    delay(20); // Limit FPS
+}
+```
+
+Alternative solution is using of a mutex for critical sections (see [source](https://github.com/tort32/PxMatrix/blob/main/examples/hello/hello.ino#L125) for ESP32)
