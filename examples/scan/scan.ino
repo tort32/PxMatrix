@@ -1,7 +1,7 @@
 // Configuration defines should go before library include
 #define PxMATRIX_OE_INVERT     1
 #define PxMATRIX_DATA_INVERT   1
-#define PxMATRIX_GAMMA_PRESET  3
+#define PxMATRIX_COLOR_DEPTH   1
 #define PxMATRIX_DOUBLE_BUFFER 1
 
 #ifdef ESP8266
