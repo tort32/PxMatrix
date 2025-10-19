@@ -85,10 +85,16 @@ void setup() {
 
     // Register display scanline task
 #ifdef ESP32
-    timer = timerBegin(0, 80, true);
-    timerAttachInterrupt(timer, &display_updater, true);
-    timerAlarmWrite(timer, 1000, true); // each 1 ms
-    timerAlarmEnable(timer);
+    #if ESP_ARDUINO_VERSION_MAJOR <= 2
+        timer = timerBegin(0, 80, true);
+        timerAttachInterrupt(timer, &display_updater, true);
+        timerAlarmWrite(timer, 1000, true); // each 1 ms
+        timerAlarmEnable(timer);
+    #else
+        timer = timerBegin(1000000);
+        timerAttachInterrupt(timer, &display_updater);
+        timerAlarm(timer, 1000, true, 0); // each 1 ms
+    #endif
 #elif defined(ESP8266)
     ticker.attach(0.001, display_updater); // 1 ms
 #elif defined(__AVR__)

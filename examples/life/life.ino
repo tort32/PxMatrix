@@ -57,14 +57,14 @@ Ticker ticker;
 #endif
 
 // Single matrix module example
-const uint8_t WIDTH = 32;
-const uint8_t HEIGHT = 16;
-PxMATRIX display(WIDTH, HEIGHT, P_LAT, P_OE, P_A, P_B);
+//const uint8_t WIDTH = 32;
+//const uint8_t HEIGHT = 16;
+//PxMATRIX display(WIDTH, HEIGHT, P_LAT, P_OE, P_A, P_B);
 
 // Matrix array example for 8 panels in 4 by 2 grid
-//const uint8_t WIDTH = 32 * 4;
-//const uint8_t HEIGHT = 16 * 2;
-//PxMATRIX display(WIDTH, HEIGHT, { P_LAT, P_LAT2 }, P_OE, { P_A, P_B });
+const uint8_t WIDTH = 32 * 4;
+const uint8_t HEIGHT = 16 * 2;
+PxMATRIX display(WIDTH, HEIGHT, { P_LAT, P_LAT2 }, P_OE, { P_A, P_B });
 
 #ifdef ESP32
 void IRAM_ATTR display_updater() {
@@ -98,10 +98,16 @@ void setup() {
 
     // Register display scanline task
 #ifdef ESP32
-    timer = timerBegin(0, 80, true);
-    timerAttachInterrupt(timer, &display_updater, true);
-    timerAlarmWrite(timer, 1000, true); // 1 ms
-    timerAlarmEnable(timer);
+    #if ESP_ARDUINO_VERSION_MAJOR <= 2
+        timer = timerBegin(0, 80, true);
+        timerAttachInterrupt(timer, &display_updater, true);
+        timerAlarmWrite(timer, 1000, true); // each 1 ms
+        timerAlarmEnable(timer);
+    #else
+        timer = timerBegin(1000000);
+        timerAttachInterrupt(timer, &display_updater);
+        timerAlarm(timer, 1000, true, 0); // each 1 ms
+    #endif
 #endif
 #ifdef ESP8266
     ticker.attach(0.005, display_updater); // 5 ms

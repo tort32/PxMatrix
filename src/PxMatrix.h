@@ -127,6 +127,7 @@ public:
     // Size of width and height = total number of LEDs in width and height for the whole matrix.
     //   Number of matrix pannels in width should be set with "setPanelsWidth" method.
     //   Number of matrix pannels in height is definded by number of latch pins.
+	//   In the case of Zigzag configuration set number of pannels and chain direction with "setMatrixSize" method.
     // LATCH = output pin for Register Latch signal (can be named as L, LAT, STB or SCLK)
     // OE = output pin for Output Enable (to light pixels of the current selected scanline)
     // A,B,C,D,E = ouput pins for scan pattern demultiplexing (to select current scanline)
@@ -183,7 +184,8 @@ public:
     // (May help if some rows are missing / the mux chip is too slow)
     inline void setMuxDelay(uint8_t mux_delay_A, uint8_t mux_delay_B, uint8_t mux_delay_C = 0, uint8_t mux_delay_D = 0, uint8_t mux_delay_E = 0);
 
-    // Set the number of panels that make up the display area width (default is 1)
+    // Deprecated. Use "setMatrixSize" method.
+	// Set the number of panels that make up the display area width (default is 1)
     inline void setPanelsWidth(uint8_t panels);
 
     // Set number of panels in the matrix and panels chaining configuration
